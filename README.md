@@ -1,29 +1,14 @@
 # 🌿 BookLeaf Publishing Platform — Fullstack Assessment Application
 
 > **🚀 Live Deployments**:
-> - **Frontend (Vercel)**: [https://book-leaf-ticket-app.vercel.app](https://book-leaf-ticket-app.vercel.app/)
-> - **Backend API (Render)**: [https://bookleaf-panel.onrender.com](https://bookleaf-panel.onrender.com)
-> - **GitHub Repository**: [https://github.com/ambersoni33/BookLeaf_Panel](https://github.com/ambersoni33/BookLeaf_Panel)
+https://book-leaf-ticket-app.vercel.app/
+
 
 A modern, production-grade publishing management and support automation platform built with **React 18, Node.js Express (ES Modules), Tailwind CSS**, a canonical **PostgreSQL relational database schema**, and an autonomous **LangGraph AI Support Intelligence Agent (`gpt-5.6-luna`)**.
 
 The platform is engineered around two distinct personas:
 1. **Authors (Book Writers)**: Personalized author studio featuring financial & royalty dashboards, book production status trackers, an interactive support desk with single/double-tick read receipts, and a **right-side sliding navigation drawer**.
 2. **Company Publishers (Admin)**: Executive operations console overseeing author catalogs, total royalty disbursements, inbound ticket queues with real-time polling, and an **interactive sliding sidepanel** to chat directly with authors and manage workflows.
-
----
-
-## 📋 Table of Contents
-1. [🚀 How to Set Up and Run the Project Locally](#1--how-to-set-up-and-run-the-project-locally)
-2. [🏛️ Architecture Decisions & Why They Were Made](#2-️-architecture-decisions--why-they-were-made)
-3. [🤖 How the AI Integration Works](#3--how-the-ai-integration-works)
-   - [LangGraph DAG Engine](#the-langgraph-stategraph-dag-engine)
-   - [Prompt Strategy](#a-prompt-strategy)
-   - [Error Handling & Resiliency](#b-error-handling--resiliency)
-   - [Cost Management & Token Efficiency](#c-cost-management--token-efficiency)
-4. [📡 API Documentation & Endpoints Specification](#4--api-documentation--endpoints-specification)
-5. [🔮 Known Limitations & Things I'd Improve Given More Time](#5--known-limitations--things-id-improve-given-more-time)
-6. [👤 Demo Accounts & Role-Based Access Control (RBAC)](#6--demo-accounts--role-based-access-control-rbac)
 
 ---
 
