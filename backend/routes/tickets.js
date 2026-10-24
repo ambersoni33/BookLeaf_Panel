@@ -112,8 +112,9 @@ router.post('/', requireAuth, async (req, res) => {
     const cleanBookId = book_id && book_id !== 'general' ? book_id.trim() : null;
     if (cleanBookId) {
       try {
-        const bookCheck = await pool.query('SELECT book_id FROM books WHERE book_id = $1', [cleanBookId]);
-        if (bookCheck.rows.length === 0) {
+        const allAuthors = await dataService.getAllAuthors();
+        const bookExists = allAuthors.some(a => (a.books || []).some(b => b.book_id === cleanBookId));
+        if (!bookExists) {
           validationErrors.push({ field: 'book_id', message: `Book ID '${cleanBookId}' does not exist in the database.` });
         }
       } catch (dbErr) {
