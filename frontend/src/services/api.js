@@ -1,4 +1,24 @@
-const API_BASE = '/api';
+// Smart API Base Resolver:
+// 1. Uses VITE_API_URL if explicitly provided in environment
+// 2. Falls back to '/api' (proxied to http://localhost:5000) when running locally on localhost
+// 3. Falls back to live Render backend if deployed to Vercel/production without an env var
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api`;
+  }
+  
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost) {
+      return '/api'; // Proxied to http://localhost:5000 by Vite
+    }
+  }
+
+  // Deployed production fallback (e.g. Vercel deployment)
+  return 'https://bookleaf-panel.onrender.com/api';
+};
+
+const API_BASE = getApiBase();
 
 function getAuthHeaders() {
   const token = localStorage.getItem('bookleaf_token');
