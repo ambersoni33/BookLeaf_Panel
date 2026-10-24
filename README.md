@@ -91,14 +91,17 @@ When designing this platform, I focused on three pillars:
 
 ## 🤖 3. The LangGraph LLM Agent Architecture
 
-The ticket analysis engine is built on **LangGraph** (`@langchain/langgraph`) using a stateful, multi-node Directed Acyclic Graph (DAG):
+The ticket analysis engine is built on **LangGraph** (`@langchain/langgraph`) using a stateful, multi-node Directed Acyclic Graph (DAG) powered by the **`gpt-5.6-luna`** model (`OPENAI_MODEL=gpt-5.6-luna`):
+
+> **🧠 LLM Engine — `gpt-5.6-luna`**:
+> We explicitly employ OpenAI's high-intelligence **`gpt-5.6-luna`** model for the autonomous support pipeline. It provides deep multi-step reasoning, strict adherence to structured JSON/Zod schemas with zero hallucination drift, and nuanced empathy calibration crucial for addressing sensitive author financial and production concerns.
 
 ```
 [Start] ──▶ Node 1: classifyAndPrioritize
-                │ (Structured Output via Zod Schema)
+                │ (Structured Output via Zod Schema on gpt-5.6-luna)
                 ▼
             Node 2: generateResponse
-                │ (Dynamic Routing to Isolated Domain Prompts)
+                │ (Dynamic Routing to Isolated Domain Prompts on gpt-5.6-luna)
                 ▼
             Node 3: persistResults
                 │ (Direct PostgreSQL Update)
@@ -254,25 +257,67 @@ The frontend application starts on **http://localhost:3000**.
 
 ---
 
-## 👤 7. Authentication & Test Accounts (RBAC)
+## 👤 7. Authentication, Login & Account Provisioning (RBAC)
 
-The application enforces strict Role-Based Access Control:
-- **Publisher Administrator**: Requires both **Email** and **Password** (`admin123`).
-- **Authors**: Require **Email Only** (passwordless author login).
+The application enforces strict, backend-verified Role-Based Access Control (RBAC) separated into two login paradigms:
 
-| Role | Name | Email | Password | Details & Access |
-|---|---|---|---|---|
-| **Admin** | BookLeaf Publisher Admin | `admin@bookleaf.com` | `admin123` | Full administrative console, inbound tickets, inspect author pages |
-| **Author** | Priya Sharma | `priya.sharma@email.com` | *(Email only)* | 2 books, pending royalty: ₹3,570 |
-| **Author** | Rohit Kapoor | `rohit.kapoor@email.com` | *(Email only)* | 2 books, pending royalty: ₹5,280 |
-| **Author** | Ananya Reddy | `ananya.reddy@email.com` | *(Email only)* | 1 book, pending royalty: ₹2,546 |
-| **Author** | Vikram Joshi | `vikram.joshi@email.com` | *(Email only)* | 2 books, pending royalty: ₹3,350 |
-| **Author** | Meera Nair | `meera.nair@email.com` | *(Email only)* | 2 books, pending royalty: ₹3,055 |
-| **Author** | Arjun Malhotra | `arjun.malhotra@email.com` | *(Email only)* | 1 book, pending royalty: ₹2,464 |
-| **Author** | Sneha Kulkarni | `sneha.kulkarni@email.com` | *(Email only)* | 3 books (1 in cover design), pending: ₹7,865 |
-| **Author** | Farhan Sheikh | `farhan.sheikh@email.com` | *(Email only)* | 1 book, all royalties cleared |
-| **Author** | Kavita Deshmukh | `kavita.deshmukh@email.com` | *(Email only)* | 2 books (1 in typesetting), pending: ₹850 |
-| **Author** | Diya Chatterjee | `diya.chatterjee@email.com` | *(Email only)* | 2 books, pending royalty: ₹4,115 |
+---
+
+### A. Publisher Administrator Login & Account Creation
+- **Login Credentials**:
+  - **Email**: `admin@bookleaf.com` *(or any verified `@bookleaf.com` staff email)*
+  - **Password**: `admin123` *(configurable via `ADMIN_PASSWORD` in `backend/.env`)*
+- **Security & Authorization Rules**:
+  - Requires **both Email and Password**. If either is missing or incorrect, login is rejected with HTTP `400` / `401`.
+  - Grants global publisher executive privileges: Inbound Ticket Queue management, AI Copilot draft dispatching, total platform royalty oversight, and 1-click sliding sidepanel access into any author's workspace.
+- **Admin Account Provisioning (Signup)**:
+  - Admin accounts are seeded in the PostgreSQL `users` table via:
+    ```sql
+    INSERT INTO users (email, role, author_id)
+    VALUES ('admin@bookleaf.com', 'admin', NULL)
+    ON CONFLICT (email) DO NOTHING;
+    ```
+  - Additional staff admins can be provisioned by inserting their email with `role = 'admin'`.
+
+---
+
+### B. Author Portal Login & Account Provisioning (Signup)
+- **Login Credentials**:
+  - **Email**: Any registered author email (e.g. `priya.sharma@email.com`)
+  - **Password**: **None required (Passwordless)**
+- **Why Passwordless Author Login?**:
+  - Empathy-driven design for authors: Eliminates friction, forgotten password resets, and complex onboarding steps.
+  - The backend securely verifies that the email exists in the database `authors` table and issues a scoped JWT token tied strictly to that author's `author_id`.
+  - Authors cannot see, query, or access any administrative dashboards, tickets, or financials of other authors.
+- **Author Signup & Onboarding**:
+  - New authors are registered by inserting their profile into the `authors` and `users` tables:
+    ```sql
+    INSERT INTO authors (author_id, name, email, phone, city, joined_date)
+    VALUES ('AUTH011', 'New Author', 'author@example.com', '+91-99999-88888', 'Mumbai', CURRENT_DATE);
+
+    INSERT INTO users (email, role, author_id)
+    VALUES ('author@example.com', 'author', 'AUTH011');
+    ```
+  - Once inserted into PostgreSQL, the new author can instantly sign in using their email address with zero setup delay.
+
+---
+
+### C. Complete Directory of All 10 Pre-Seeded Author Accounts
+
+All 10 author accounts from the BookLeaf assessment benchmark are pre-populated and ready for immediate login:
+
+| # | Author ID | Author Name | Login Email | Location | Books Count | Pending Royalties | Password |
+|:---:|:---:|---|---|---|:---:|:---:|:---:|
+| 1 | `AUTH001` | **Priya Sharma** | `priya.sharma@email.com` | Mumbai | 2 books | ₹3,570 | *(Email Only)* |
+| 2 | `AUTH002` | **Rohit Kapoor** | `rohit.kapoor@email.com` | Delhi | 2 books | ₹5,280 | *(Email Only)* |
+| 3 | `AUTH003` | **Ananya Reddy** | `ananya.reddy@email.com` | Hyderabad | 1 book | ₹2,546 | *(Email Only)* |
+| 4 | `AUTH004` | **Vikram Joshi** | `vikram.joshi@email.com` | Pune | 2 books | ₹3,350 | *(Email Only)* |
+| 5 | `AUTH005` | **Meera Nair** | `meera.nair@email.com` | Kochi | 2 books | ₹3,055 | *(Email Only)* |
+| 6 | `AUTH006` | **Arjun Malhotra** | `arjun.malhotra@email.com` | Chandigarh | 1 book | ₹2,464 | *(Email Only)* |
+| 7 | `AUTH007` | **Sneha Kulkarni** | `sneha.kulkarni@email.com` | Bangalore | 3 books | ₹7,865 | *(Email Only)* |
+| 8 | `AUTH008` | **Farhan Sheikh** | `farhan.sheikh@email.com` | Lucknow | 1 book | ₹0 *(Cleared)* | *(Email Only)* |
+| 9 | `AUTH009` | **Kavita Deshmukh** | `kavita.deshmukh@email.com` | Nagpur | 2 books | ₹850 | *(Email Only)* |
+| 10 | `AUTH010` | **Diya Chatterjee** | `diya.chatterjee@email.com` | Kolkata | 2 books | ₹4,115 | *(Email Only)* |
 
 ---
 
