@@ -1,6 +1,6 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
-import fs from 'fs';
+
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,18 +13,18 @@ const { Pool } = pg;
 // PostgreSQL Database Configuration & Connection Pool
 // Live PostgreSQL instance configured via DATABASE_URL in .env:
 
-const isRemoteDb = 
+const isRemoteDb =
   Boolean(process.env.DATABASE_URL && (
-    process.env.DATABASE_URL.includes('supabase') || 
+    process.env.DATABASE_URL.includes('supabase') ||
     process.env.DATABASE_URL.includes('pooler') ||
-    process.env.DATABASE_URL.includes('neon') || 
+    process.env.DATABASE_URL.includes('neon') ||
     process.env.DATABASE_URL.includes('render') ||
     process.env.DATABASE_URL.includes('sslmode=require') ||
     process.env.NODE_ENV === 'production'
   ));
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/bookleaf_db',
+  connectionString: process.env.DATABASE_URL || "",
   connectionTimeoutMillis: isRemoteDb ? 10000 : 3000,
   idleTimeoutMillis: 10000,
   ssl: isRemoteDb ? { rejectUnauthorized: false } : false
@@ -32,39 +32,13 @@ export const pool = new Pool({
 
 let isPostgresAvailable = false;
 
-// Test connection on boot and auto-seed if empty
+// Test connection on boot
 export const dbReady = (async () => {
   try {
     const client = await pool.connect();
     const res = await client.query('SELECT NOW()');
 
-    // 1. Check if 'authors' table exists in PostgreSQL
-    const tableCheck = await client.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' AND table_name = 'authors'
-      );
-    `);
-    const tableExists = tableCheck.rows[0]?.exists;
-    
-    let authorsCount = 0;
-    if (tableExists) {
-      const countRes = await client.query('SELECT COUNT(*) FROM authors');
-      authorsCount = parseInt(countRes.rows[0]?.count || '0', 10);
-    }
-
-    // 2. If table doesn't exist or is empty, auto-execute schema.sql
-    if (!tableExists || authorsCount === 0) {
-      console.log('🔄 PostgreSQL authors table missing or empty. Auto-executing schema.sql to initialize database...');
-      const schemaPath = path.resolve(__dirname, 'schema.sql');
-      if (fs.existsSync(schemaPath)) {
-        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-        await client.query(schemaSql);
-        console.log('✅ schema.sql executed successfully! All tables & seed data initialized in PostgreSQL.');
-      }
-    }
-
-    // 3. Automatically ensure is_read column exists on ticket_messages table
+    // Automatically ensure is_read column exists on ticket_messages table
     await client.query(`
       ALTER TABLE ticket_messages 
       ADD COLUMN IF NOT EXISTS is_read BOOLEAN NOT NULL DEFAULT FALSE;
@@ -82,420 +56,11 @@ export const dbReady = (async () => {
   }
 })();
 
-// In-Memory fallback store pre-populated with all 10 authors
-let memoryAuthors = [
-  {
-    author_id: 'AUTH001',
-    name: 'Priya Sharma',
-    email: 'priya.sharma@email.com',
-    phone: '+91-98765-43210',
-    city: 'Mumbai',
-    joined_date: '2023-03-15',
-    books: [
-      {
-        book_id: 'BK001',
-        title: 'Whispers of the Ganges',
-        isbn: '978-93-5XXXX-01-1',
-        genre: 'Literary Fiction',
-        publication_date: '2023-06-20',
-        status: 'Published & Live',
-        mrp: 399,
-        author_royalty_per_copy: 35,
-        total_copies_sold: 342,
-        total_royalty_earned: 11970,
-        royalty_paid: 8400,
-        royalty_pending: 3570,
-        last_royalty_payout_date: '2025-10-15',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'Flipkart', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK002',
-        title: 'The Saffron Diaries',
-        isbn: '978-93-5XXXX-02-8',
-        genre: 'Non-Fiction / Memoir',
-        publication_date: '2024-01-10',
-        status: 'Published & Live',
-        mrp: 450,
-        author_royalty_per_copy: 42,
-        total_copies_sold: 189,
-        total_royalty_earned: 7938,
-        royalty_paid: 7938,
-        royalty_pending: 0,
-        last_royalty_payout_date: '2025-12-01',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH002',
-    name: 'Rohit Kapoor',
-    email: 'rohit.kapoor@email.com',
-    phone: '+91-87654-32109',
-    city: 'Delhi',
-    joined_date: '2022-11-08',
-    books: [
-      {
-        book_id: 'BK003',
-        title: 'Code & Karma',
-        isbn: '978-93-5XXXX-03-5',
-        genre: 'Self-Help / Technology',
-        publication_date: '2023-02-14',
-        status: 'Published & Live',
-        mrp: 350,
-        author_royalty_per_copy: 30,
-        total_copies_sold: 876,
-        total_royalty_earned: 26280,
-        royalty_paid: 21000,
-        royalty_pending: 5280,
-        last_royalty_payout_date: '2025-09-01',
-        print_partner: 'Repro India',
-        available_on: ['Amazon India', 'Flipkart', 'Amazon US', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK004',
-        title: 'Startup Sutra',
-        isbn: '978-93-5XXXX-04-2',
-        genre: 'Business / Entrepreneurship',
-        publication_date: '2024-05-22',
-        status: 'Published & Live',
-        mrp: 499,
-        author_royalty_per_copy: 48,
-        total_copies_sold: 1203,
-        total_royalty_earned: 57744,
-        royalty_paid: 50000,
-        royalty_pending: 7744,
-        last_royalty_payout_date: '2025-11-15',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'Flipkart', 'Amazon US', 'Amazon UK', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH003',
-    name: 'Ananya Reddy',
-    email: 'ananya.reddy@email.com',
-    phone: '+91-76543-21098',
-    city: 'Hyderabad',
-    joined_date: '2024-02-20',
-    books: [
-      {
-        book_id: 'BK005',
-        title: 'Between Two Temples',
-        isbn: '978-93-5XXXX-05-9',
-        genre: 'Historical Fiction',
-        publication_date: '2024-07-05',
-        status: 'Published & Live',
-        mrp: 425,
-        author_royalty_per_copy: 38,
-        total_copies_sold: 67,
-        total_royalty_earned: 2546,
-        royalty_paid: 0,
-        royalty_pending: 2546,
-        last_royalty_payout_date: null,
-        print_partner: 'Epitome Books',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH004',
-    name: 'Vikram Joshi',
-    email: 'vikram.joshi@email.com',
-    phone: '+91-65432-10987',
-    city: 'Pune',
-    joined_date: '2023-07-12',
-    books: [
-      {
-        book_id: 'BK006',
-        title: 'Debugging Life',
-        isbn: '978-93-5XXXX-06-6',
-        genre: 'Self-Help',
-        publication_date: '2023-11-30',
-        status: 'Published & Live',
-        mrp: 299,
-        author_royalty_per_copy: 25,
-        total_copies_sold: 534,
-        total_royalty_earned: 13350,
-        royalty_paid: 10000,
-        royalty_pending: 3350,
-        last_royalty_payout_date: '2025-08-20',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'Flipkart', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK007',
-        title: 'The Last Monsoon',
-        isbn: '978-93-5XXXX-07-3',
-        genre: 'Poetry',
-        publication_date: '2024-08-15',
-        status: 'Published & Live',
-        mrp: 199,
-        author_royalty_per_copy: 15,
-        total_copies_sold: 123,
-        total_royalty_earned: 1845,
-        royalty_paid: 1845,
-        royalty_pending: 0,
-        last_royalty_payout_date: '2025-12-01',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH005',
-    name: 'Meera Nair',
-    email: 'meera.nair@email.com',
-    phone: '+91-54321-09876',
-    city: 'Kochi',
-    joined_date: '2023-01-05',
-    books: [
-      {
-        book_id: 'BK008',
-        title: 'Cardamom & Chaos',
-        isbn: '978-93-5XXXX-08-0',
-        genre: 'Contemporary Fiction',
-        publication_date: '2023-04-18',
-        status: 'Published & Live',
-        mrp: 375,
-        author_royalty_per_copy: 32,
-        total_copies_sold: 445,
-        total_royalty_earned: 14240,
-        royalty_paid: 14240,
-        royalty_pending: 0,
-        last_royalty_payout_date: '2025-12-01',
-        print_partner: 'Repro India',
-        available_on: ['Amazon India', 'Flipkart', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK009',
-        title: 'Letters from Lakshadweep',
-        isbn: '978-93-5XXXX-09-7',
-        genre: 'Travel / Non-Fiction',
-        publication_date: '2024-03-01',
-        status: 'Published & Live',
-        mrp: 550,
-        author_royalty_per_copy: 55,
-        total_copies_sold: 201,
-        total_royalty_earned: 11055,
-        royalty_paid: 8000,
-        royalty_pending: 3055,
-        last_royalty_payout_date: '2025-10-15',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'Amazon US', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH006',
-    name: 'Arjun Malhotra',
-    email: 'arjun.malhotra@email.com',
-    phone: '+91-43210-98765',
-    city: 'Chandigarh',
-    joined_date: '2024-06-01',
-    books: [
-      {
-        book_id: 'BK010',
-        title: 'Turban Tales',
-        isbn: '978-93-5XXXX-10-3',
-        genre: 'Humor / Essays',
-        publication_date: '2024-09-10',
-        status: 'Published & Live',
-        mrp: 325,
-        author_royalty_per_copy: 28,
-        total_copies_sold: 88,
-        total_royalty_earned: 2464,
-        royalty_paid: 0,
-        royalty_pending: 2464,
-        last_royalty_payout_date: null,
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH007',
-    name: 'Sneha Kulkarni',
-    email: 'sneha.kulkarni@email.com',
-    phone: '+91-32109-87654',
-    city: 'Bangalore',
-    joined_date: '2022-09-18',
-    books: [
-      {
-        book_id: 'BK011',
-        title: 'The Algorithm of Love',
-        isbn: '978-93-5XXXX-11-0',
-        genre: 'Romance',
-        publication_date: '2022-12-25',
-        status: 'Published & Live',
-        mrp: 299,
-        author_royalty_per_copy: 25,
-        total_copies_sold: 1567,
-        total_royalty_earned: 39175,
-        royalty_paid: 35000,
-        royalty_pending: 4175,
-        last_royalty_payout_date: '2025-11-15',
-        print_partner: 'Repro India',
-        available_on: ['Amazon India', 'Flipkart', 'Amazon US', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK012',
-        title: 'Ctrl+Alt+Delete My Ex',
-        isbn: '978-93-5XXXX-12-7',
-        genre: 'Romance / Humor',
-        publication_date: '2024-02-14',
-        status: 'Published & Live',
-        mrp: 350,
-        author_royalty_per_copy: 30,
-        total_copies_sold: 723,
-        total_royalty_earned: 21690,
-        royalty_paid: 18000,
-        royalty_pending: 3690,
-        last_royalty_payout_date: '2025-10-15',
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'Flipkart', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK013',
-        title: 'Midnight in Mysore',
-        isbn: '978-93-5XXXX-13-4',
-        genre: 'Thriller',
-        publication_date: null,
-        status: 'In Production - Cover Design',
-        mrp: null,
-        author_royalty_per_copy: null,
-        total_copies_sold: 0,
-        total_royalty_earned: 0,
-        royalty_paid: 0,
-        royalty_pending: 0,
-        last_royalty_payout_date: null,
-        print_partner: null,
-        available_on: []
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH008',
-    name: 'Farhan Sheikh',
-    email: 'farhan.sheikh@email.com',
-    phone: '+91-21098-76543',
-    city: 'Lucknow',
-    joined_date: '2023-10-01',
-    books: [
-      {
-        book_id: 'BK014',
-        title: 'Ghazal of the Forgotten',
-        isbn: '978-93-5XXXX-14-1',
-        genre: 'Poetry / Urdu Literature',
-        publication_date: '2024-01-26',
-        status: 'Published & Live',
-        mrp: 250,
-        author_royalty_per_copy: 20,
-        total_copies_sold: 156,
-        total_royalty_earned: 3120,
-        royalty_paid: 3120,
-        royalty_pending: 0,
-        last_royalty_payout_date: '2025-12-01',
-        print_partner: 'Epitome Books',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH009',
-    name: 'Kavita Deshmukh',
-    email: 'kavita.deshmukh@email.com',
-    phone: '+91-10987-65432',
-    city: 'Nagpur',
-    joined_date: '2024-04-10',
-    books: [
-      {
-        book_id: 'BK015',
-        title: 'Raising Roots',
-        isbn: '978-93-5XXXX-15-8',
-        genre: 'Parenting / Non-Fiction',
-        publication_date: null,
-        status: 'In Production - Typesetting',
-        mrp: null,
-        author_royalty_per_copy: null,
-        total_copies_sold: 0,
-        total_royalty_earned: 0,
-        royalty_paid: 0,
-        royalty_pending: 0,
-        last_royalty_payout_date: null,
-        print_partner: null,
-        available_on: []
-      },
-      {
-        book_id: 'BK016',
-        title: 'The Nagpur Notebooks',
-        isbn: '978-93-5XXXX-16-5',
-        genre: 'Essays / Memoir',
-        publication_date: '2024-11-05',
-        status: 'Published & Live',
-        mrp: 299,
-        author_royalty_per_copy: 25,
-        total_copies_sold: 34,
-        total_royalty_earned: 850,
-        royalty_paid: 0,
-        royalty_pending: 850,
-        last_royalty_payout_date: null,
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  },
-  {
-    author_id: 'AUTH010',
-    name: 'Diya Chatterjee',
-    email: 'diya.chatterjee@email.com',
-    phone: '+91-09876-54321',
-    city: 'Kolkata',
-    joined_date: '2023-05-22',
-    books: [
-      {
-        book_id: 'BK017',
-        title: "Durga's Daughters",
-        isbn: '978-93-5XXXX-17-2',
-        genre: 'Literary Fiction',
-        publication_date: '2023-10-15',
-        status: 'Published & Live',
-        mrp: 475,
-        author_royalty_per_copy: 45,
-        total_copies_sold: 612,
-        total_royalty_earned: 27540,
-        royalty_paid: 25000,
-        royalty_pending: 2540,
-        last_royalty_payout_date: '2025-11-15',
-        print_partner: 'Repro India',
-        available_on: ['Amazon India', 'Flipkart', 'Amazon US', 'BookLeaf Store']
-      },
-      {
-        book_id: 'BK018',
-        title: 'Howrah Nights',
-        isbn: '978-93-5XXXX-18-9',
-        genre: 'Crime / Thriller',
-        publication_date: '2025-01-20',
-        status: 'Published & Live',
-        mrp: 399,
-        author_royalty_per_copy: 35,
-        total_copies_sold: 45,
-        total_royalty_earned: 1575,
-        royalty_paid: 0,
-        royalty_pending: 1575,
-        last_royalty_payout_date: null,
-        print_partner: 'In-House',
-        available_on: ['Amazon India', 'BookLeaf Store']
-      }
-    ]
-  }
-];
-
+// In-Memory fallback store (empty default)
+let memoryAuthors = [];
 let memoryTickets = [];
 let messageIdCounter = 100;
 let ticketIdCounter = 2000;
-
 
 /**
  * Data Service Abstraction:
@@ -906,6 +471,62 @@ export const dataService = {
     }
     return { ticket_id: ticketId, category, priority, priority_score, updated_at: now };
   },
+
+  /**
+   * Update AI triage fields (category, priority, score, reasoning, draft response)
+   */
+  async updateTicketAiAnalysis(ticketId, { category, priority, priority_score, reasoning, ai_draft_response }) {
+    await dbReady;
+    const now = new Date().toISOString();
+
+    if (isPostgresAvailable) {
+      try {
+        const query = `
+          UPDATE tickets
+          SET 
+            category = COALESCE($1, category),
+            priority = COALESCE($2, priority),
+            ai_category = COALESCE($1, ai_category),
+            ai_priority = COALESCE($2, ai_priority),
+            ai_priority_score = COALESCE($3, ai_priority_score),
+            ai_reasoning = COALESCE($4, ai_reasoning),
+            ai_draft_response = COALESCE($5, ai_draft_response),
+            updated_at = $6
+          WHERE ticket_id = $7
+        `;
+        await pool.query(query, [
+          category || null,
+          priority || null,
+          priority_score || null,
+          reasoning || null,
+          ai_draft_response || null,
+          now,
+          ticketId
+        ]);
+      } catch (err) {
+        console.warn('Postgres AI analysis update error, saving to memory:', err.message);
+      }
+    }
+
+    const ticket = memoryTickets.find(t => t.ticket_id === ticketId);
+    if (ticket) {
+      if (category) {
+        ticket.category = category;
+        ticket.ai_category = category;
+      }
+      if (priority) {
+        ticket.priority = priority;
+        ticket.ai_priority = priority;
+      }
+      if (priority_score) ticket.ai_priority_score = priority_score;
+      if (reasoning) ticket.ai_reasoning = reasoning;
+      if (ai_draft_response) ticket.ai_draft_response = ai_draft_response;
+      ticket.updated_at = now;
+      return ticket;
+    }
+    return null;
+  },
+
 
   /**
    * Admin internal notes update

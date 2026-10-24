@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 import { StateGraph, Annotation } from '@langchain/langgraph';
-import pg from 'pg';
 import {
   CLASSIFICATION_SYSTEM_PROMPT,
   getPromptForCategory
@@ -10,8 +9,7 @@ import {
 
 dotenv.config();
 
-
-import { pool } from '../db/db.js';
+import { pool, dataService } from '../db/db.js';
 
 /**
  * 1. Zod Schema for Structured Classification & Priority Scoring
@@ -53,32 +51,38 @@ export const TicketAgentAnnotation = Annotation.Root({
 
 /**
  * Helper to initialize ChatOpenAI
- * Validates API key configuration and throws meaningful, actionable errors if unconfigured.
+ * Uses the exact configured model (e.g. gpt-5.6-luna) and supports custom OPENAI_BASE_URL if configured.
  */
 function getLLMClient() {
   const apiKey = process.env.OPENAI_API_KEY;
-  console.log(apiKey);
 
   if (!apiKey || apiKey.trim() === '' || apiKey.includes('your-openai-api-key') || apiKey.includes('sk-placeholder')) {
-    throw new Error('OPENAI_API_KEY is missing or unconfigured in backend/.env. Please provide a valid OpenAI API key to execute AI triage.');
+    throw new Error('OPENAI_API_KEY is missing or unconfigured in backend/.env. Please provide a valid API key.');
   }
 
-  let modelName = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim();
+  const modelName = (process.env.OPENAI_MODEL || 'gpt-5.6-luna').trim();
 
-  return new ChatOpenAI({
+  const options = {
     modelName: modelName,
     temperature: 0.2,
     openAIApiKey: apiKey,
-  });
+  };
+
+  if (process.env.OPENAI_BASE_URL) {
+    options.configuration = {
+      baseURL: process.env.OPENAI_BASE_URL.trim()
+    };
+  }
+
+  return new ChatOpenAI(options);
 }
 
 /**
  * Node 1: Classifier & Prioritizer Node
- * Executes live structured output via LangChain ChatOpenAI.
+ * Executes live structured output, with JSON fallback if tools calling is unsupported by the endpoint.
  */
 async function classifyAndPrioritizeNode(state) {
   const llm = getLLMClient();
-  const structuredLlm = llm.withStructuredOutput(ClassificationSchema);
 
   const prompt = `
 ${CLASSIFICATION_SYSTEM_PROMPT}
@@ -91,14 +95,41 @@ Detailed Query Description: ${state.description || state.subject}
 File Attached: ${state.file_attachment_name || 'None'}
 `;
 
-  const result = await structuredLlm.invoke(prompt);
-  return {
-    category: result.category,
-    priority: result.priority,
-    priority_score: result.priority_score,
-    reasoning: result.reasoning
-  };
+  try {
+    const structuredLlm = llm.withStructuredOutput(ClassificationSchema);
+    const result = await structuredLlm.invoke(prompt);
+    return {
+      category: result.category,
+      priority: result.priority,
+      priority_score: result.priority_score,
+      reasoning: result.reasoning
+    };
+  } catch (err) {
+    console.warn(`Tools structured output failed (${err.message}), falling back to direct JSON parsing:`);
+    const jsonPrompt = `${prompt}
+Respond ONLY with a valid JSON object matching this exact schema:
+{
+  "category": "Royalty & Payments" | "ISBN & Metadata Issues" | "Printing & Quality" | "Distribution & Availability" | "Book Status & Production Updates" | "General Inquiry",
+  "priority_score": <number between 1 and 10>,
+  "priority": "Critical" | "High" | "Medium" | "Low",
+  "reasoning": "<one concise analytical sentence>"
+}`;
+    const rawRes = await llm.invoke(jsonPrompt);
+    const text = typeof rawRes.content === 'string' ? rawRes.content : JSON.stringify(rawRes.content);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        category: parsed.category || 'General Inquiry',
+        priority: parsed.priority || 'Medium',
+        priority_score: Number(parsed.priority_score) || 5,
+        reasoning: parsed.reasoning || 'Classified by AI agent'
+      };
+    }
+    throw err;
+  }
 }
+
 
 /**
  * Node 2: Category-Specific Response Generator Node
@@ -133,33 +164,18 @@ Do not use placeholders like [Insert Date]; use realistic, specific operational 
 
 /**
  * Node 3: Database Persistence Node
- * Persists the real AI classification, priority score, reasoning, and draft response into PostgreSQL.
+ * Persists the AI classification, priority score, reasoning, and draft response into PostgreSQL & Memory Store.
  */
 async function persistResultsNode(state) {
   if (!state.ticket_id) return state;
 
-  const query = `
-    UPDATE tickets
-    SET 
-      category = $1,
-      priority = $2,
-      ai_category = $1,
-      ai_priority = $2,
-      ai_priority_score = $3,
-      ai_reasoning = $4,
-      ai_draft_response = $5,
-      updated_at = NOW()
-    WHERE ticket_id = $6
-  `;
-
-  await pool.query(query, [
-    state.category,
-    state.priority,
-    state.priority_score,
-    state.reasoning,
-    state.ai_draft_response,
-    state.ticket_id
-  ]);
+  await dataService.updateTicketAiAnalysis(state.ticket_id, {
+    category: state.category,
+    priority: state.priority,
+    priority_score: state.priority_score,
+    reasoning: state.reasoning,
+    ai_draft_response: state.ai_draft_response
+  });
 
   console.log(`🤖 AI Agent successfully triaged ticket ${state.ticket_id}:`, {
     category: state.category,
@@ -185,8 +201,6 @@ export const ticketAgentApp = ticketWorkflow.compile();
 
 /**
  * Trigger the LangGraph AI Agent for a ticket.
- * In case of an AI failure or missing API key, records the real error state in the database
- * so the admin queue transparently displays the failure reason instead of silent generic errors.
  */
 export async function runTicketAiAgent(ticketData) {
   console.log(`🚀 Triggering LangGraph AI Agent for Ticket ${ticketData.ticket_id}...`);
@@ -196,10 +210,14 @@ export async function runTicketAiAgent(ticketData) {
   let bookStatus = null;
   if (ticketData.book_id) {
     try {
-      const bookRes = await pool.query('SELECT title, status FROM books WHERE book_id = $1', [ticketData.book_id]);
-      if (bookRes.rows.length > 0) {
-        bookTitle = bookRes.rows[0].title;
-        bookStatus = bookRes.rows[0].status;
+      const allAuthors = await dataService.getAllAuthors();
+      for (const a of allAuthors) {
+        const found = (a.books || []).find(b => b.book_id === ticketData.book_id);
+        if (found) {
+          bookTitle = found.title;
+          bookStatus = found.status;
+          break;
+        }
       }
     } catch (e) {
       console.warn('Could not fetch book details:', e.message);
@@ -209,12 +227,12 @@ export async function runTicketAiAgent(ticketData) {
   // Look up author name & email if not passed
   let authorName = ticketData.author_name;
   let authorEmail = ticketData.author_email;
-  if (!authorName && ticketData.author_id) {
+  if ((!authorName || !authorEmail) && ticketData.author_id) {
     try {
-      const authorRes = await pool.query('SELECT name, email FROM authors WHERE author_id = $1', [ticketData.author_id]);
-      if (authorRes.rows.length > 0) {
-        authorName = authorRes.rows[0].name;
-        authorEmail = authorRes.rows[0].email;
+      const author = await dataService.getAuthorByIdOrEmail(ticketData.author_id);
+      if (author) {
+        authorName = authorName || author.name;
+        authorEmail = authorEmail || author.email;
       }
     } catch (e) {
       console.warn('Could not fetch author details:', e.message);
@@ -240,20 +258,12 @@ export async function runTicketAiAgent(ticketData) {
   } catch (err) {
     console.error(`❌ LangGraph AI Agent failed for ticket ${ticketData.ticket_id}:`, err.message);
 
-    // Persist real error message in database for admin visibility
+    // Persist real error message via dataService so in-memory fallback works too
     try {
-      await pool.query(
-        `UPDATE tickets 
-         SET ai_reasoning = $1, 
-             ai_draft_response = $2, 
-             updated_at = NOW() 
-         WHERE ticket_id = $3`,
-        [
-          `AI Service Error: ${err.message}`,
-          `[AI Draft Generation Failed: ${err.message}]`,
-          ticketData.ticket_id
-        ]
-      );
+      await dataService.updateTicketAiAnalysis(ticketData.ticket_id, {
+        reasoning: `AI Service Error: ${err.message}`,
+        ai_draft_response: `[AI Draft Generation Failed: ${err.message}]`
+      });
     } catch (dbErr) {
       console.error('Failed to record AI error in database:', dbErr.message);
     }
